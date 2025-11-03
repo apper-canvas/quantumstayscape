@@ -1,140 +1,331 @@
-import reviewsData from "@/services/mockData/reviews.json";
+import { toast } from 'react-toastify';
 
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const tableName = 'review_c';
 
 const reviewService = {
-  async getAll(filters = {}) {
-    await delay(300);
-    
-    let reviews = [...reviewsData];
-    
-    // Apply filters
-    if (filters.hotelId) {
-      reviews = reviews.filter(review => review.hotelId === parseInt(filters.hotelId));
-    }
-    
-    if (filters.userId) {
-      reviews = reviews.filter(review => review.userId === parseInt(filters.userId));
-    }
-    
-    if (filters.minRating) {
-      reviews = reviews.filter(review => review.rating >= filters.minRating);
-    }
-    
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      reviews = reviews.filter(review => 
-        review.title.toLowerCase().includes(searchLower) ||
-        review.comment.toLowerCase().includes(searchLower) ||
-        review.userName.toLowerCase().includes(searchLower)
-      );
-    }
-    
-    // Apply sorting
-    if (filters.sortBy) {
-      reviews.sort((a, b) => {
-        switch (filters.sortBy) {
-          case "newest":
-            return new Date(b.createdAt) - new Date(a.createdAt);
-          case "oldest":
-            return new Date(a.createdAt) - new Date(b.createdAt);
-          case "rating-high":
-            return b.rating - a.rating;
-          case "rating-low":
-            return a.rating - b.rating;
-          default:
-            return new Date(b.createdAt) - new Date(a.createdAt);
-        }
+  apperClient: null,
+
+  initializeClient() {
+    if (typeof window !== 'undefined' && window.ApperSDK && !this.apperClient) {
+      const { ApperClient } = window.ApperSDK;
+      this.apperClient = new ApperClient({
+        apperProjectId: import.meta.env.VITE_APPER_PROJECT_ID,
+        apperPublicKey: import.meta.env.VITE_APPER_PUBLIC_KEY
       });
     }
+  },
+
+  ensureClient() {
+    if (!this.apperClient) {
+      this.initializeClient();
+    }
+    if (!this.apperClient) {
+      throw new Error('ApperClient not initialized');
+    }
+  },
+
+  transformReviewData(reviewData) {
+    let photos = [];
+    try {
+      photos = typeof reviewData.photos === 'string' 
+        ? JSON.parse(reviewData.photos) 
+        : (reviewData.photos || []);
+    } catch (e) {
+      photos = [];
+    }
+
+    return {
+      Id: reviewData.Id,
+      hotelId: reviewData.hotel_id_c?.Id || reviewData.hotel_id_c,
+      userId: reviewData.user_id_c?.Id || reviewData.user_id_c,
+      userName: reviewData.user_name_c,
+      userAvatar: reviewData.user_avatar_c,
+      rating: reviewData.rating_c,
+      title: reviewData.title_c,
+      comment: reviewData.comment_c,
+      photos: photos,
+      stayDate: reviewData.stay_date_c,
+      createdAt: reviewData.created_at_c,
+      updatedAt: reviewData.updated_at_c,
+      helpful: reviewData.helpful_c,
+      verified: reviewData.verified_c
+    };
+  },
+
+  async getAll(filters = {}) {
+    this.ensureClient();
     
-    return reviews;
+    let whereConditions = [];
+
+    // Apply filters
+    if (filters.hotelId) {
+      whereConditions.push({
+        FieldName: "hotel_id_c",
+        Operator: "EqualTo",
+        Values: [parseInt(filters.hotelId)]
+      });
+    }
+
+    if (filters.userId) {
+      whereConditions.push({
+        FieldName: "user_id_c",
+        Operator: "EqualTo",
+        Values: [parseInt(filters.userId)]
+      });
+    }
+
+    if (filters.minRating) {
+      whereConditions.push({
+        FieldName: "rating_c",
+        Operator: "GreaterThanOrEqualTo",
+        Values: [filters.minRating]
+      });
+    }
+
+    if (filters.search) {
+      whereConditions.push({
+        FieldName: "title_c",
+        Operator: "Contains",
+        Values: [filters.search]
+      });
+    }
+
+    const params = {
+      fields: [
+        {"field": {"Name": "Id"}},
+        {"field": {"Name": "Name"}},
+        {"field": {"Name": "comment_c"}},
+        {"field": {"Name": "created_at_c"}},
+        {"field": {"Name": "helpful_c"}},
+        {"field": {"Name": "hotel_id_c"}},
+        {"field": {"Name": "rating_c"}},
+        {"field": {"Name": "stay_date_c"}},
+        {"field": {"Name": "title_c"}},
+        {"field": {"Name": "updated_at_c"}},
+        {"field": {"Name": "user_avatar_c"}},
+        {"field": {"Name": "user_id_c"}},
+        {"field": {"Name": "user_name_c"}},
+        {"field": {"Name": "verified_c"}}
+      ],
+      where: whereConditions.length > 0 ? whereConditions : undefined,
+      orderBy: filters.sortBy ? this.getSortOrder(filters.sortBy) : [{"fieldName": "created_at_c", "sorttype": "DESC"}]
+    };
+
+    const response = await this.apperClient.fetchRecords(tableName, params);
+    
+    if (!response.success) {
+      console.error(response.message);
+      toast.error(response.message);
+      return [];
+    }
+
+    if (!response.data) {
+      return [];
+    }
+
+    return response.data.map(review => this.transformReviewData(review));
+  },
+
+  getSortOrder(sortBy) {
+    switch (sortBy) {
+      case "newest":
+        return [{"fieldName": "created_at_c", "sorttype": "DESC"}];
+      case "oldest":
+        return [{"fieldName": "created_at_c", "sorttype": "ASC"}];
+      case "rating-high":
+        return [{"fieldName": "rating_c", "sorttype": "DESC"}];
+      case "rating-low":
+        return [{"fieldName": "rating_c", "sorttype": "ASC"}];
+      default:
+        return [{"fieldName": "created_at_c", "sorttype": "DESC"}];
+    }
   },
 
   async getById(id) {
-    await delay(200);
-    const review = reviewsData.find(r => r.Id === parseInt(id));
-    if (!review) {
+    this.ensureClient();
+    
+    const params = {
+      fields: [
+        {"field": {"Name": "Id"}},
+        {"field": {"Name": "Name"}},
+        {"field": {"Name": "comment_c"}},
+        {"field": {"Name": "created_at_c"}},
+        {"field": {"Name": "helpful_c"}},
+        {"field": {"Name": "hotel_id_c"}},
+        {"field": {"Name": "rating_c"}},
+        {"field": {"Name": "stay_date_c"}},
+        {"field": {"Name": "title_c"}},
+        {"field": {"Name": "updated_at_c"}},
+        {"field": {"Name": "user_avatar_c"}},
+        {"field": {"Name": "user_id_c"}},
+        {"field": {"Name": "user_name_c"}},
+        {"field": {"Name": "verified_c"}}
+      ]
+    };
+
+    const response = await this.apperClient.getRecordById(tableName, id, params);
+    
+    if (!response.success) {
+      console.error(response.message);
+      toast.error(response.message);
+      throw new Error(response.message);
+    }
+
+    if (!response.data) {
       throw new Error("Review not found");
     }
-    return { ...review };
+
+    return this.transformReviewData(response.data);
   },
 
   async getByHotelId(hotelId) {
-    await delay(250);
-    return reviewsData.filter(review => review.hotelId === parseInt(hotelId));
+    return this.getAll({ hotelId });
   },
 
   async getByUserId(userId) {
-    await delay(250);
-    return reviewsData.filter(review => review.userId === parseInt(userId));
+    return this.getAll({ userId });
   },
 
   async create(reviewData) {
-    await delay(400);
+    this.ensureClient();
     
     // Validate required fields
     if (!reviewData.hotelId || !reviewData.userId || !reviewData.rating || !reviewData.title) {
       throw new Error("Missing required fields");
     }
-    
-    const newId = Math.max(...reviewsData.map(r => r.Id), 0) + 1;
-    const newReview = {
-      Id: newId,
-      hotelId: parseInt(reviewData.hotelId),
-      userId: parseInt(reviewData.userId),
-      userName: reviewData.userName || "Anonymous",
-      userAvatar: reviewData.userAvatar || null,
-      rating: parseInt(reviewData.rating),
-      title: reviewData.title,
-      comment: reviewData.comment || "",
-      photos: reviewData.photos || [],
-      stayDate: reviewData.stayDate || new Date().toISOString().split('T')[0],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      helpful: 0,
-      verified: true
+
+    // Map UI fields to database fields - only include updateable fields
+    const createData = {
+      Name: `Review - ${reviewData.title}`,
+      comment_c: reviewData.comment || "",
+      created_at_c: new Date().toISOString(),
+      helpful_c: 0,
+      hotel_id_c: parseInt(reviewData.hotelId),
+      rating_c: parseInt(reviewData.rating),
+      stay_date_c: reviewData.stayDate || new Date().toISOString().split('T')[0],
+      title_c: reviewData.title,
+      updated_at_c: new Date().toISOString(),
+      user_avatar_c: reviewData.userAvatar || null,
+      user_id_c: parseInt(reviewData.userId),
+      user_name_c: reviewData.userName || "Anonymous",
+      verified_c: true
     };
+
+    const params = {
+      records: [createData]
+    };
+
+    const response = await this.apperClient.createRecord(tableName, params);
     
-    reviewsData.push(newReview);
-    return { ...newReview };
+    if (!response.success) {
+      console.error(response.message);
+      toast.error(response.message);
+      throw new Error(response.message);
+    }
+
+    if (response.results) {
+      const successful = response.results.filter(r => r.success);
+      const failed = response.results.filter(r => !r.success);
+      
+      if (failed.length > 0) {
+        console.error(`Failed to create ${failed.length} records: ${JSON.stringify(failed)}`);
+        failed.forEach(record => {
+          record.errors?.forEach(error => toast.error(`${error.fieldLabel}: ${error}`));
+          if (record.message) toast.error(record.message);
+        });
+        throw new Error("Failed to create review");
+      }
+
+      if (successful.length > 0) {
+        const createdReview = successful[0].data;
+        return this.transformReviewData(createdReview);
+      }
+    }
+
+    throw new Error("Create failed");
   },
 
   async update(id, updateData) {
-    await delay(350);
+    this.ensureClient();
     
-    const index = reviewsData.findIndex(r => r.Id === parseInt(id));
-    if (index === -1) {
-      throw new Error("Review not found");
-    }
+    // Map UI fields to database fields - only include updateable fields
+    const dbUpdateData = { Id: parseInt(id) };
+    if (updateData.comment !== undefined) dbUpdateData.comment_c = updateData.comment;
+    if (updateData.helpful !== undefined) dbUpdateData.helpful_c = updateData.helpful;
+    if (updateData.rating !== undefined) dbUpdateData.rating_c = parseInt(updateData.rating);
+    if (updateData.stayDate !== undefined) dbUpdateData.stay_date_c = updateData.stayDate;
+    if (updateData.title !== undefined) dbUpdateData.title_c = updateData.title;
+    if (updateData.userAvatar !== undefined) dbUpdateData.user_avatar_c = updateData.userAvatar;
+    if (updateData.userName !== undefined) dbUpdateData.user_name_c = updateData.userName;
+    if (updateData.verified !== undefined) dbUpdateData.verified_c = updateData.verified;
     
-    const updatedReview = {
-      ...reviewsData[index],
-      ...updateData,
-      Id: parseInt(id), // Preserve ID
-      updatedAt: new Date().toISOString()
+    // Always update the updated_at timestamp
+    dbUpdateData.updated_at_c = new Date().toISOString();
+
+    const params = {
+      records: [dbUpdateData]
     };
+
+    const response = await this.apperClient.updateRecord(tableName, params);
     
-    reviewsData[index] = updatedReview;
-    return { ...updatedReview };
+    if (!response.success) {
+      console.error(response.message);
+      toast.error(response.message);
+      throw new Error(response.message);
+    }
+
+    if (response.results) {
+      const successful = response.results.filter(r => r.success);
+      const failed = response.results.filter(r => !r.success);
+      
+      if (failed.length > 0) {
+        console.error(`Failed to update ${failed.length} records: ${JSON.stringify(failed)}`);
+        failed.forEach(record => {
+          record.errors?.forEach(error => toast.error(`${error.fieldLabel}: ${error}`));
+          if (record.message) toast.error(record.message);
+        });
+      }
+
+      if (successful.length > 0) {
+        return this.getById(id);
+      }
+    }
+
+    throw new Error("Update failed");
   },
 
   async delete(id) {
-    await delay(300);
+    this.ensureClient();
     
-    const index = reviewsData.findIndex(r => r.Id === parseInt(id));
-    if (index === -1) {
-      throw new Error("Review not found");
+    const params = { 
+      RecordIds: [parseInt(id)]
+    };
+
+    const response = await this.apperClient.deleteRecord(tableName, params);
+    
+    if (!response.success) {
+      console.error(response.message);
+      toast.error(response.message);
+      throw new Error(response.message);
     }
-    
-    reviewsData.splice(index, 1);
+
+    if (response.results) {
+      const failed = response.results.filter(r => !r.success);
+      
+      if (failed.length > 0) {
+        console.error(`Failed to delete ${failed.length} records: ${JSON.stringify(failed)}`);
+        failed.forEach(record => {
+          if (record.message) toast.error(record.message);
+        });
+        throw new Error("Delete failed");
+      }
+    }
+
     return { success: true };
   },
 
   async getHotelStats(hotelId) {
-    await delay(200);
-    
-    const hotelReviews = reviewsData.filter(r => r.hotelId === parseInt(hotelId));
+    const hotelReviews = await this.getByHotelId(parseInt(hotelId));
     
     if (hotelReviews.length === 0) {
       return {

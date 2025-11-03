@@ -1,79 +1,205 @@
-import hotelsData from "@/services/mockData/hotels.json";
+import { toast } from 'react-toastify';
 
-// Simulate API delay
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const tableName = 'hotel_c';
 
 class HotelService {
-  async getAll(filters = {}) {
-    await delay(300);
-    
-    let hotels = [...hotelsData];
-    
-    // Apply filters
-    if (filters.destination) {
-      hotels = hotels.filter(hotel => 
-        hotel.location.city.toLowerCase().includes(filters.destination.toLowerCase()) ||
-        hotel.location.state.toLowerCase().includes(filters.destination.toLowerCase()) ||
-        hotel.name.toLowerCase().includes(filters.destination.toLowerCase())
-      );
-    }
-    
-    if (filters.minPrice || filters.maxPrice) {
-      hotels = hotels.filter(hotel => {
-        const price = hotel.pricePerNight;
-        return (!filters.minPrice || price >= filters.minPrice) &&
-               (!filters.maxPrice || price <= filters.maxPrice);
-      });
-    }
-    
-    if (filters.starRating && filters.starRating.length > 0) {
-      hotels = hotels.filter(hotel => 
-        filters.starRating.includes(hotel.starRating)
-      );
-    }
-    
-    if (filters.amenities && filters.amenities.length > 0) {
-      hotels = hotels.filter(hotel =>
-        filters.amenities.some(amenity => 
-          hotel.amenities.some(hotelAmenity => 
-            hotelAmenity.toLowerCase().includes(amenity.toLowerCase())
-          )
-        )
-      );
-    }
-    
-    if (filters.rating) {
-      hotels = hotels.filter(hotel => hotel.rating >= filters.rating);
-    }
-    
-    // Apply sorting
-    if (filters.sortBy) {
-      hotels.sort((a, b) => {
-        switch (filters.sortBy) {
-          case "price-low":
-            return a.pricePerNight - b.pricePerNight;
-          case "price-high":
-            return b.pricePerNight - a.pricePerNight;
-          case "rating":
-            return b.rating - a.rating;
-          case "name":
-            return a.name.localeCompare(b.name);
-          default:
-            return 0;
-        }
-      });
-    }
-    
-    return hotels;
+  constructor() {
+    this.apperClient = null;
+    this.initializeClient();
   }
 
-async getById(id) {
-    await delay(200);
-    const hotel = hotelsData.find(h => h.Id === parseInt(id));
-    if (!hotel) {
+  initializeClient() {
+    if (typeof window !== 'undefined' && window.ApperSDK) {
+      const { ApperClient } = window.ApperSDK;
+      this.apperClient = new ApperClient({
+        apperProjectId: import.meta.env.VITE_APPER_PROJECT_ID,
+        apperPublicKey: import.meta.env.VITE_APPER_PUBLIC_KEY
+      });
+    }
+  }
+
+  ensureClient() {
+    if (!this.apperClient) {
+      this.initializeClient();
+    }
+    if (!this.apperClient) {
+      throw new Error('ApperClient not initialized');
+    }
+  }
+
+  transformHotelData(hotelData) {
+    return {
+      Id: hotelData.Id,
+      name: hotelData.name_c || hotelData.Name,
+      address: hotelData.address_c,
+      available: hotelData.available_c,
+      description: hotelData.description_c,
+      featured: hotelData.featured_c,
+      location: {
+        city: hotelData.city_c,
+        state: hotelData.state_c,
+        country: hotelData.country_c,
+        coordinates: hotelData.coordinates_c
+      },
+      pricePerNight: hotelData.price_per_night_c,
+      rating: hotelData.rating_c,
+      reviewCount: hotelData.review_count_c,
+      starRating: hotelData.star_rating_c,
+      // Mock data for UI compatibility
+      images: [
+        "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&h=600&fit=crop",
+        "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&h=600&fit=crop"
+      ],
+      amenities: ["Free WiFi", "Pool", "Spa", "Gym", "Restaurant"]
+    };
+  }
+
+  async getAll(filters = {}) {
+    this.ensureClient();
+    
+    let whereConditions = [];
+    let whereGroups = [];
+
+    // Apply filters
+    if (filters.destination) {
+      whereGroups.push({
+        operator: "OR",
+        subGroups: [
+          {
+            conditions: [
+              { fieldName: "city_c", operator: "Contains", values: [filters.destination] },
+              { fieldName: "state_c", operator: "Contains", values: [filters.destination] },
+              { fieldName: "name_c", operator: "Contains", values: [filters.destination] }
+            ],
+            operator: "OR"
+          }
+        ]
+      });
+    }
+
+    if (filters.minPrice || filters.maxPrice) {
+      if (filters.minPrice) {
+        whereConditions.push({
+          FieldName: "price_per_night_c",
+          Operator: "GreaterThanOrEqualTo",
+          Values: [filters.minPrice]
+        });
+      }
+      if (filters.maxPrice) {
+        whereConditions.push({
+          FieldName: "price_per_night_c",
+          Operator: "LessThanOrEqualTo",
+          Values: [filters.maxPrice]
+        });
+      }
+    }
+
+    if (filters.starRating && filters.starRating.length > 0) {
+      whereConditions.push({
+        FieldName: "star_rating_c",
+        Operator: "ExactMatch",
+        Values: filters.starRating
+      });
+    }
+
+    if (filters.rating) {
+      whereConditions.push({
+        FieldName: "rating_c",
+        Operator: "GreaterThanOrEqualTo",
+        Values: [filters.rating]
+      });
+    }
+
+    const params = {
+      fields: [
+        {"field": {"Name": "Id"}},
+        {"field": {"Name": "Name"}},
+        {"field": {"Name": "address_c"}},
+        {"field": {"Name": "available_c"}},
+        {"field": {"Name": "description_c"}},
+        {"field": {"Name": "featured_c"}},
+        {"field": {"Name": "city_c"}},
+        {"field": {"Name": "state_c"}},
+        {"field": {"Name": "country_c"}},
+        {"field": {"Name": "coordinates_c"}},
+        {"field": {"Name": "name_c"}},
+        {"field": {"Name": "price_per_night_c"}},
+        {"field": {"Name": "rating_c"}},
+        {"field": {"Name": "review_count_c"}},
+        {"field": {"Name": "star_rating_c"}}
+      ],
+      where: whereConditions,
+      whereGroups: whereGroups.length > 0 ? whereGroups : undefined,
+      orderBy: filters.sortBy ? this.getSortOrder(filters.sortBy) : undefined
+    };
+
+    const response = await this.apperClient.fetchRecords(tableName, params);
+    
+    if (!response.success) {
+      console.error(response.message);
+      toast.error(response.message);
+      return [];
+    }
+
+    if (!response.data) {
+      return [];
+    }
+
+    return response.data.map(hotel => this.transformHotelData(hotel));
+  }
+
+  getSortOrder(sortBy) {
+    switch (sortBy) {
+      case "price-low":
+        return [{"fieldName": "price_per_night_c", "sorttype": "ASC"}];
+      case "price-high":
+        return [{"fieldName": "price_per_night_c", "sorttype": "DESC"}];
+      case "rating":
+        return [{"fieldName": "rating_c", "sorttype": "DESC"}];
+      case "name":
+        return [{"fieldName": "name_c", "sorttype": "ASC"}];
+      default:
+        return undefined;
+    }
+  }
+
+  async getById(id) {
+    this.ensureClient();
+    
+    const params = {
+      fields: [
+        {"field": {"Name": "Id"}},
+        {"field": {"Name": "Name"}},
+        {"field": {"Name": "address_c"}},
+        {"field": {"Name": "available_c"}},
+        {"field": {"Name": "description_c"}},
+        {"field": {"Name": "featured_c"}},
+        {"field": {"Name": "city_c"}},
+        {"field": {"Name": "state_c"}},
+        {"field": {"Name": "country_c"}},
+        {"field": {"Name": "coordinates_c"}},
+        {"field": {"Name": "name_c"}},
+        {"field": {"Name": "price_per_night_c"}},
+        {"field": {"Name": "rating_c"}},
+        {"field": {"Name": "review_count_c"}},
+        {"field": {"Name": "star_rating_c"}}
+      ]
+    };
+
+    const response = await this.apperClient.getRecordById(tableName, id, params);
+    
+    if (!response.success) {
+      console.error(response.message);
+      toast.error(response.message);
+      throw new Error(response.message);
+    }
+
+    if (!response.data) {
       throw new Error("Hotel not found");
     }
-    
+
+    const hotel = this.transformHotelData(response.data);
+
     // Get review statistics
     try {
       const reviewService = await import("@/services/api/reviewService.js");
@@ -87,33 +213,114 @@ async getById(id) {
       };
     } catch (err) {
       // Fallback to original hotel data if review service fails
-      return { ...hotel };
+      return hotel;
     }
   }
 
   async getFeatured() {
-    await delay(250);
-    return hotelsData.filter(hotel => hotel.featured).slice(0, 4);
+    this.ensureClient();
+    
+    const params = {
+      fields: [
+        {"field": {"Name": "Id"}},
+        {"field": {"Name": "Name"}},
+        {"field": {"Name": "address_c"}},
+        {"field": {"Name": "available_c"}},
+        {"field": {"Name": "description_c"}},
+        {"field": {"Name": "featured_c"}},
+        {"field": {"Name": "city_c"}},
+        {"field": {"Name": "state_c"}},
+        {"field": {"Name": "country_c"}},
+        {"field": {"Name": "coordinates_c"}},
+        {"field": {"Name": "name_c"}},
+        {"field": {"Name": "price_per_night_c"}},
+        {"field": {"Name": "rating_c"}},
+        {"field": {"Name": "review_count_c"}},
+        {"field": {"Name": "star_rating_c"}}
+      ],
+      where: [
+        {
+          FieldName: "featured_c",
+          Operator: "EqualTo",
+          Values: [true]
+        }
+      ],
+      pagingInfo: {"limit": 4, "offset": 0}
+    };
+
+    const response = await this.apperClient.fetchRecords(tableName, params);
+    
+    if (!response.success) {
+      console.error(response.message);
+      toast.error(response.message);
+      return [];
+    }
+
+    if (!response.data) {
+      return [];
+    }
+
+    return response.data.map(hotel => this.transformHotelData(hotel));
   }
 
   async search(query) {
-    await delay(300);
     if (!query || query.trim() === "") {
       return [];
     }
+
+    this.ensureClient();
     
-    const searchTerm = query.toLowerCase();
-    return hotelsData.filter(hotel =>
-      hotel.name.toLowerCase().includes(searchTerm) ||
-      hotel.location.city.toLowerCase().includes(searchTerm) ||
-      hotel.location.state.toLowerCase().includes(searchTerm) ||
-      hotel.description.toLowerCase().includes(searchTerm)
-    );
+    const params = {
+      fields: [
+        {"field": {"Name": "Id"}},
+        {"field": {"Name": "Name"}},
+        {"field": {"Name": "address_c"}},
+        {"field": {"Name": "available_c"}},
+        {"field": {"Name": "description_c"}},
+        {"field": {"Name": "featured_c"}},
+        {"field": {"Name": "city_c"}},
+        {"field": {"Name": "state_c"}},
+        {"field": {"Name": "country_c"}},
+        {"field": {"Name": "coordinates_c"}},
+        {"field": {"Name": "name_c"}},
+        {"field": {"Name": "price_per_night_c"}},
+        {"field": {"Name": "rating_c"}},
+        {"field": {"Name": "review_count_c"}},
+        {"field": {"Name": "star_rating_c"}}
+      ],
+      whereGroups: [{
+        operator: "OR",
+        subGroups: [
+          {
+            conditions: [
+              { fieldName: "name_c", operator: "Contains", values: [query] },
+              { fieldName: "city_c", operator: "Contains", values: [query] },
+              { fieldName: "state_c", operator: "Contains", values: [query] },
+              { fieldName: "description_c", operator: "Contains", values: [query] }
+            ],
+            operator: "OR"
+          }
+        ]
+      }]
+    };
+
+    const response = await this.apperClient.fetchRecords(tableName, params);
+    
+    if (!response.success) {
+      console.error(response.message);
+      toast.error(response.message);
+      return [];
+    }
+
+    if (!response.data) {
+      return [];
+    }
+
+    return response.data.map(hotel => this.transformHotelData(hotel));
   }
 
   async checkAvailability(hotelId, checkIn, checkOut) {
-    await delay(400);
-    const hotel = hotelsData.find(h => h.Id === parseInt(hotelId));
+    const hotel = await this.getById(hotelId);
     if (!hotel) {
       throw new Error("Hotel not found");
     }

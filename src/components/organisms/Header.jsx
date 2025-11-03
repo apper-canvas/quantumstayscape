@@ -1,39 +1,38 @@
-import { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useContext, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
+import { AnimatePresence, motion } from "framer-motion";
+import { AuthContext } from "../../App";
 import ApperIcon from "@/components/ApperIcon";
 import Button from "@/components/atoms/Button";
 
-const Header = () => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+function Header() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { user, isAuthenticated } = useSelector((state) => state.user);
+  const { logout } = useContext(AuthContext);
   
-  // Simulate authentication state
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user] = useState({
-    name: "John Smith",
-    avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=face"
-  });
-
-  const isActivePath = (path) => location.pathname === path;
-
+  // Helper function to check if current path matches navigation item
+  const isActivePath = (path) => {
+    return location.pathname === path || location.pathname.startsWith(path + '/');
+  };
+  // Navigation items
   const publicNavItems = [
-    { name: "Home", path: "/", icon: "Home" },
-    { name: "Hotels", path: "/hotels", icon: "Building2" },
+    { name: "Hotels", path: "/hotels", icon: "Building" },
     { name: "About", path: "/about", icon: "Info" }
   ];
-
+  
   const privateNavItems = [
     { name: "Dashboard", path: "/dashboard", icon: "LayoutDashboard" },
     { name: "My Bookings", path: "/bookings", icon: "Calendar" },
     { name: "Profile", path: "/profile", icon: "User" }
   ];
 
+  // Authentication functions
   const handleAuth = () => {
     if (isAuthenticated) {
-      setIsAuthenticated(false);
-      navigate("/");
+      logout();
     } else {
       navigate("/login");
     }
@@ -73,15 +72,15 @@ const Header = () => {
 
           {/* Auth Section */}
           <div className="hidden lg:flex items-center space-x-4">
-            {isAuthenticated ? (
+{isAuthenticated ? (
               <div className="flex items-center space-x-3">
                 <div className="flex items-center space-x-2">
                   <img
-                    src={user.avatar}
-                    alt={user.name}
+                    src={user?.profileImage || user?.avatar || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=face"}
+                    alt={user?.name || user?.firstName || "User"}
                     className="w-8 h-8 rounded-full object-cover"
                   />
-                  <span className="text-sm font-medium text-gray-700">{user.name}</span>
+                  <span className="text-sm font-medium text-gray-700">{user?.name || user?.firstName || "User"}</span>
                 </div>
                 <Button variant="ghost" size="sm" onClick={handleAuth}>
                   <ApperIcon name="LogOut" className="w-4 h-4 mr-2" />
@@ -143,13 +142,13 @@ const Header = () => {
                   {isAuthenticated ? (
                     <div className="space-y-3">
                       <div className="flex items-center space-x-3 px-4 py-2">
-                        <img
-                          src={user.avatar}
-                          alt={user.name}
+<img
+                          src={user?.profileImage || user?.avatar || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=face"}
+                          alt={user?.name || user?.firstName || "User"}
                           className="w-10 h-10 rounded-full object-cover"
                         />
                         <div>
-                          <div className="text-base font-medium text-gray-900">{user.name}</div>
+                          <div className="text-base font-medium text-gray-900">{user?.name || user?.firstName || "User"}</div>
                           <div className="text-sm text-gray-500">View Profile</div>
                         </div>
                       </div>
